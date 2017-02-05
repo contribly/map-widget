@@ -1,0 +1,29 @@
+.contribly-map-panel {
+    width: 940px;
+    height: 660px;
+}
+
+.contribly-map-cluster {
+    background-image: url(images/m1.png);
+    width: 53px;
+    height: 52px;
+    text-align: center;
+}
+
+.contribly-map-cluster-count {
+    text-align: center;
+    font-family: Helvetica,Arial,sans-serif;
+    font-size: 16px;
+    color: black;
+    font-weight: bold;
+
+    height: 52px;
+    line-height: 52px;
+}
+
+.contribly-map-cluster-yellow {
+    background-image: url(images/m2.png);
+    width: 53px;
+    height: 52px;
+    text-align: center;
+}
