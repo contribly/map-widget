@@ -1,4 +1,4 @@
-.contribly-map-panel {
+.contribly .map {
     width: 940px;
     height: 660px;
 }
@@ -26,4 +26,29 @@
     width: 53px;
     height: 52px;
     text-align: center;
+}
+
+.contribly .map .popup {
+    width: 300px;
+}
+
+.contribly .map  .popup img {
+    max-width: 100%;
+    height: auto;
+}
+
+.contribly .map  .attributes {
+    font-family: sans-serif;
+    color: #666;
+    font-size: 10pt;
+}
+
+.contribly .map  ul.attributes {
+    list-style-type: none;
+    margin: 2pt;
+    padding: 0;
+}
+
+.contribly .map  .attributes li  {
+    margin-right: 10pt;
 }

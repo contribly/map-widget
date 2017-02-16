@@ -40,7 +40,7 @@ function contriblyInitMap(span) {
     };
     var topLevelGeohashes = ["b", "c", "f", "g", "u", "v", "y", "z", "8", "9", "d", "e", "s", "t", "w", "x", "2", "3", "6", "7", "k", "m", "q", "r", "0", "1", "4", "5", "h", "j", "n", "p"];
 
-    var maxZoom = 16;
+    var maxZoom = 10;
 
     var pendingLayers = [];
 
@@ -69,6 +69,41 @@ function contriblyInitMap(span) {
         return dx * dx + dy * dy
     }
 
+    function attributesBarFor(attribution, created, place) {
+          var attributesBar = contriblyjQuery('<ul>', {class: "attributes"});
+          attributesBar.append(contriblyjQuery("<li>", {class: "attribution"}).text(attribution));
+          var formattedCreatedDate = contriblyjQuery.format.date(created, "d MMMM yyyy")
+          attributesBar.append(contriblyjQuery("<li>", {class: "created"}).text(formattedCreatedDate));
+          if (place) {
+            attributesBar.append(contriblyjQuery("<li>", {class: "place"}).text(place));
+          }
+          return attributesBar;
+    }
+
+    function popupForContribution(contribution) {
+        var popup = contriblyjQuery("<div>", {class: "popup"});
+        popup.append(contriblyjQuery("<h3>").text(contribution.headline));
+
+        var mediaUsage = contribution.mediaUsages.length > 0 ? contribution.mediaUsages[0] : null;
+        var mediumArtifact = mediaUsage != undefined ? contriblyUnderscore.find(mediaUsage.artifacts, function(artifact) {
+            return artifact.label == "mediumoriginalaspectdouble" && artifact.url != undefined;
+        }) : null;
+        var thumbnail = mediumArtifact ? contriblyjQuery("<img>", {src: mediumArtifact.url, class: "thumb"}).attr("width", mediumArtifact.width).attr("height", mediumArtifact.height) : null;  // TODO Lazy load
+        if (thumbnail) {
+            popup.append(thumbnail);
+        }
+        var placeName = (contribution.place && contribution.place.name) ? contribution.place.name : "";
+        popup.append(attributesBarFor(contribution.attribution, contribution.created, placeName));
+
+        if (contribution.body) {
+            popup.append(contriblyjQuery("<p>", {class: "body"}).text(contribution.body));
+        }
+
+        var holder = contriblyjQuery("<div>");
+        holder.append(popup);
+        return holder.html();
+    }
+
     function markerForContribution(contribution) {
         var latLong = contribution.place.latLong;
         var mediaUsage = contribution.mediaUsages.length > 0 ? contribution.mediaUsages[0] : null;
@@ -77,31 +112,28 @@ function contriblyInitMap(span) {
             return artifact.label == "small" && artifact.url != undefined;
         }) : null;
 
-         var mediumArtifact = mediaUsage != undefined ? contriblyUnderscore.find(mediaUsage.artifacts, function(artifact) {
-            return artifact.label == "medium" && artifact.url != undefined;
-        }) : null;
-
         var headline = contribution.webUrl ? '<a href="' + contribution.webUrl + '">' + contribution.headline + '</a>' : contribution.headline;
         var icon = smallArtifact ? '<img src="' + smallArtifact.url + '" width="40" />' : "";
-        var thumbnail = mediumArtifact ? '<p><img src="' + mediumArtifact.url + '" width="240" /></p>' : "";
         var body = (contribution.body != undefined) ? "<p>" + contribution.body + "</p>" : "";
 
         var point = latLongToPoint(latLong);
+
+        var thumbnailIcon = new contriblyLeaflet.DivIcon({
+            className: 'marker',
+            html: '<span class="marker-thumb">' + icon + '</span>',
+            iconSize: contriblyLeaflet.point(40, 40)
+        });
 
         var marker = icon ?
            contriblyLeaflet.marker(point,
             {
                 zIndexOffset: 10,
-                icon: new contriblyLeaflet.DivIcon({
-                    className: 'my-div-icon',
-                    html: '<span class="my-div-span">' + icon + '</span>',
-                    iconSize: contriblyLeaflet.point(40, 40)
-                })
+                icon: thumbnailIcon
 
             }
         ) : contriblyLeaflet.marker(point);
 
-        marker.bindPopup("<b>" + headline + "</b>" + thumbnail);
+        marker.bindPopup(popupForContribution(contribution));
 
         marker.originalPoint = latLongToPoint(latLong);
 
@@ -137,7 +169,7 @@ function contriblyInitMap(span) {
     }
 
     var overrideContriblyApi = span.attr('data-api');
-    var contriblyApi = (overrideContriblyApi) ? overrideContriblyApi : "https://api.contribly.com/1";
+    var contriblyApi = (overrideContriblyApi) ? overrideContriblyApi : "https://contriblyapi.global.ssl.fastly.net/1";
     var requestedAssignment = span.attr('data-assignment');
 
     function withRequestedAssignmentParameter() {
@@ -335,8 +367,11 @@ function contriblyInitMap(span) {
         });
     }
 
-    mapDiv = contriblyjQuery('<div class="contribly-map-panel"></div>');
-    span.append(mapDiv);
+    mapDiv = contriblyjQuery("<div>", {class: "map"});
+
+    var wrapper = contriblyjQuery("<div>", {class: "contribly"});
+    wrapper.append(mapDiv);
+    span.append(wrapper);
 
     var map = contriblyLeaflet.map(mapDiv.get(0), {
         center: [0, 0],
@@ -358,34 +393,35 @@ function contriblyInitMap(span) {
         draw();
     });
 
-    function calculateBoundsForEnclosingGeohashes(enclosingGeohashes) {
-        var geohashBounds = contriblyUnderscore.map(Object.keys(enclosingGeohashes), function(gh) {
-            return Geohash.bounds(gh);
-        });
-
-        var northMostLatitude = contriblyUnderscore.max(contriblyUnderscore.map(geohashBounds, function(b) {
-            return b.ne.lat
-        }));
-
-        var southMostLatitude = contriblyUnderscore.min(contriblyUnderscore.map(geohashBounds, function(b) {
-            return b.sw.lat
-        }));
-
-       var westMostLongitude = contriblyUnderscore.max(contriblyUnderscore.map(geohashBounds, function(b) {
-            return b.sw.lon
-        }));
-
-        var eastMostLongitude = contriblyUnderscore.min(contriblyUnderscore.map(geohashBounds, function(b) {
-            return b.ne.lon;
-        }));
-
-        return contriblyLeaflet.latLngBounds(
-            contriblyLeaflet.latLng(southMostLatitude, westMostLongitude),
-            contriblyLeaflet.latLng(northMostLatitude, eastMostLongitude)
-        )
-    }
-
     function setMapToInitialBounds() {
+
+        function calculateBoundsForEnclosingGeohashes(enclosingGeohashes) {
+            var geohashBounds = contriblyUnderscore.map(Object.keys(enclosingGeohashes), function(gh) {
+                return Geohash.bounds(gh);
+            });
+
+            var northMostLatitude = contriblyUnderscore.max(contriblyUnderscore.map(geohashBounds, function(b) {
+                return b.ne.lat
+            }));
+
+            var southMostLatitude = contriblyUnderscore.min(contriblyUnderscore.map(geohashBounds, function(b) {
+                return b.sw.lat
+            }));
+
+           var westMostLongitude = contriblyUnderscore.max(contriblyUnderscore.map(geohashBounds, function(b) {
+                return b.sw.lon
+            }));
+
+            var eastMostLongitude = contriblyUnderscore.min(contriblyUnderscore.map(geohashBounds, function(b) {
+                return b.ne.lon;
+            }));
+
+            return contriblyLeaflet.latLngBounds(
+                contriblyLeaflet.latLng(southMostLatitude, westMostLongitude),
+                contriblyLeaflet.latLng(northMostLatitude, eastMostLongitude)
+            )
+        }
+
         contriblyjQuery.ajax({
             url: contriblyApi + "/contribution-refinements?refinements=geohash3" + withRequestedAssignmentParameter(),
             success:function(data) {
@@ -401,7 +437,7 @@ function contriblyInitMap(span) {
 }
 
 contriblyjQuery.ajax({
-    url: "https://s3-eu-west-1.amazonaws.com/contribly-widgets/map/map2017012201.css",
+    url: "https://s3-eu-west-1.amazonaws.com/contribly-widgets/map/map2017021501.css",
     success:function(data) {
         contriblyjQuery("head").append("<style>" + data + "</style>");
         contriblyjQuery('.contribly-map').each(function(i, v) {
