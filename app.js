@@ -4,6 +4,13 @@ var contriblyLeaflet = L.noConflict();
 
 function contriblyInitMap(span) {
 
+    function publishContriblyEvent(ce) {
+        if (typeof contriblyEventListener === "function") {
+            ce['widget'] = 'map';
+            contriblyEventListener(ce);
+        }
+    }
+
     var zoomGeohashes = {
         2: 1,
         3: 2,
@@ -434,6 +441,8 @@ function contriblyInitMap(span) {
     }
 
     setMapToInitialBounds();
+
+    publishContriblyEvent({type: "loaded"})
 }
 
 contriblyjQuery.ajax({
