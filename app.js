@@ -45,9 +45,13 @@ function contriblyInitMap(span) {
         15: 6,
         16: 6
     };
+
     var topLevelGeohashes = ["b", "c", "f", "g", "u", "v", "y", "z", "8", "9", "d", "e", "s", "t", "w", "x", "2", "3", "6", "7", "k", "m", "q", "r", "0", "1", "4", "5", "h", "j", "n", "p"];
 
     var maxZoom = 10;
+    var maxClusterSize = 20;
+
+    var popupOptions = {autoPan: true, keepInView: true};
 
     var pendingLayers = [];
 
@@ -140,9 +144,9 @@ function contriblyInitMap(span) {
             }
         ) : contriblyLeaflet.marker(point);
 
-        marker.bindPopup(popupForContribution(contribution));
+        marker.bindPopup(popupForContribution(contribution), popupOptions);
 
-        marker.originalPoint = latLongToPoint(latLong);
+        marker.originalPoint = point;
 
         return marker;
     }
@@ -242,7 +246,8 @@ function contriblyInitMap(span) {
 
                     var geohashesToDrawMarkersFor = [];
 
-                    if (zoom >= 6 && cellContributions <= 20) {
+                    var showMarkers = zoom >= 6 && cellContributions <= maxClusterSize;
+                    if (showMarkers) {
                         geohashesToDrawMarkersFor.push(g);
 
                     } else {
@@ -252,31 +257,73 @@ function contriblyInitMap(span) {
 
                                 if (v > 1) {
 
-                                    function clusterClick(latLong) {
+                                    function clusterClick(clusterLatLong, geohash) {
                                         var currentZoom = map.getZoom();
-                                        if (currentZoom < maxZoom) {
-                                          map.flyTo(latLong, map.getZoom() + 1);
 
-                                        } else {
-                                            // TODO UI for unbroken clusters?
+                                        if (currentZoom < maxZoom) {
+                                            // Determine where to zoom to
+                                            var zoomLevels = contriblyUnderscore.keys(zoomGeohashes);
+                                            var higherZoomLevels = contriblyUnderscore.filter(zoomLevels, function(i) {
+                                                return i > currentZoom;
+                                            });
+
+                                            var highGeohashes = contriblyUnderscore.uniq(contriblyUnderscore.map(higherZoomLevels, function(z) {
+                                                return "geohash" + zoomGeohashes[z];
+                                            }));
+
+                                            var clusterZoomUrl = contriblyApi + "/contribution-refinements?geohash=" + geohash + "&refinements=" + highGeohashes.join("%2C") + withRequestedAssignmentParameter();
+
+                                            contriblyjQuery.ajax({
+                                                type: 'GET',
+                                                url: clusterZoomUrl,
+                                                success: function(refinements) {
+                                                    var hashes = contriblyUnderscore.keys(refinements)
+
+                                                    var th = null;
+                                                    var lz = contriblyUnderscore.find(higherZoomLevels, function(z) {
+                                                        var geohashForZoom = zoomGeohashes[z];
+                                                        var geohash = "geohash" + geohashForZoom;
+                                                        var refinement = refinements[geohash];
+                                                        var refinementLength = contriblyUnderscore.size(refinement);
+                                                        th = contriblyUnderscore.pairs(refinement)[0][0];   // Not strictly the correct centre but probably good enough
+                                                        if (refinementLength > 1) {
+                                                            return z;
+                                                        }
+                                                    });
+
+                                                    var tz = lz ? parseInt(lz) : maxZoom;
+                                                    var tll = th ? latLongCenterOfGeohash(th) : clusterLatLong;
+                                                    map.flyTo(tll, tz);
+                                                }
+                                            });
                                         }
                                     }
 
-                                    var geohashEnclosingRectangle = geoHashBoundingBoxRectangle(k, 'blue'); // TODO really want a function for centre of geohash
-                                    var label = new contriblyLeaflet.Marker(geohashEnclosingRectangle.getBounds().getCenter(), {
-                                        zIndexOffset: 1001,
-                                        icon: new contriblyLeaflet.DivIcon({
-                                            className: 'my-div-icon',
-                                            html: '<div class="contribly-map-cluster"><span class="contribly-map-cluster-count">' + v + '</span></div>',
-                                            iconSize: contriblyLeaflet.point(53, 52)
-                                        })
-                                    });
+                                    function latLongCenterOfGeohash(geohash) {
+                                        var geohashEnclosingRectangle = geoHashBoundingBoxRectangle(geohash, 'blue'); // TODO really want a function for centre of geohash
+                                        return geohashEnclosingRectangle.getBounds().getCenter();
+                                    }
 
-                                    label.on("click", function (e) {
-                                        clusterClick(this.getLatLng());
-                                    });
+                                    var currentZoom = map.getZoom();
+                                    if (currentZoom < maxZoom) {
+                                        var cluster = new contriblyLeaflet.Marker(latLongCenterOfGeohash(k), {
+                                            zIndexOffset: 1001,
+                                            icon: new contriblyLeaflet.DivIcon({
+                                                className: 'contribly-map-cluster',
+                                                html: '<span class="contribly-map-cluster-count">' + v + '</span>',
+                                                iconSize: contriblyLeaflet.point(53, 52)
+                                            })
+                                        });
 
-                                    markers.push(label);
+                                        cluster.on("click", function (e) {
+                                            clusterClick(this.getLatLng(), k);
+                                        });
+
+                                        markers.push(cluster);
+
+                                    } else {
+                                        geohashesToDrawMarkersFor.push(g);  // TODO this is probably too greedy; displaces other clusters loaded in the same query
+                                    }
 
                                 } else {
                                     geohashesToDrawMarkersFor.push(k);
@@ -296,6 +343,8 @@ function contriblyInitMap(span) {
 
                                     if (cluster.length > 1) {
                                         var clusterCenter = cluster[0].place.latLong;
+                                        var clusterCenterPoint = map.latLngToLayerPoint(latLongToPoint(clusterCenter));
+
                                         var label = new contriblyLeaflet.Marker(latLongToPoint(clusterCenter), {
                                             zIndexOffset: 1000,
                                             icon: new contriblyLeaflet.DivIcon({
@@ -311,38 +360,57 @@ function contriblyInitMap(span) {
                                             clusterMarkers.push(marker);
                                         });
 
+                                        var spiderTheta = (2 * Math.PI) / clusterMarkers.length;
+                                        var spiderRadius = 50 / (2 * Math.sin(spiderTheta / 2));
+
+                                        var outer = contriblyLeaflet.point([clusterCenterPoint.x + spiderRadius, clusterCenterPoint.y]);
+                                        var circleRadius = map.layerPointToLatLng(outer).distanceTo(contriblyLeaflet.latLng(clusterCenter.latitude, clusterCenter.longitude));
+
+                                        var circle = contriblyLeaflet.circle([clusterCenter.latitude, clusterCenter.longitude], {radius: 0, fillOpacity: 0.0, opacity: 0.0});
+                                        circle.circle = true;
+                                        circle.expandedRadius = circleRadius;
+                                        clusterMarkers.push(circle);
+
                                         var clusterLayer = contriblyLeaflet.featureGroup(clusterMarkers);
 
-                                        var gap = 20;
                                         clusterLayer.on('mouseover', function() {
-                                            var s = gap;
-
                                             var markersToSpider = [];
                                             this.eachLayer(function(ml) {
                                                 markersToSpider.push(ml);
                                             });
 
-                                            var spiderRadius = 20 * (markersToSpider.length / 3);
-                                            var spiderTheta = (2 * Math.PI) / markersToSpider.length;
-
-                                            var clusterCenterPoint = map.latLngToLayerPoint(latLongToPoint(clusterCenter));
-
                                             var s = 0;
                                             this.eachLayer(function(ml) {
-                                                var spideredPoint = contriblyLeaflet.point([clusterCenterPoint.x + (Math.sin(spiderTheta * s) * spiderRadius), clusterCenterPoint.y +  (Math.cos(spiderTheta * s) * spiderRadius)]);
-                                                var expandedLatLong = map.layerPointToLatLng(spideredPoint)
-                                                ml.setLatLng(expandedLatLong);
-                                                s = s + 1;
+                                                if (ml.circle) {
+                                                    ml.setRadius(ml.expandedRadius);
+                                                } else {
+                                                    var spideredPoint = contriblyLeaflet.point([clusterCenterPoint.x + (Math.sin(spiderTheta * s) * spiderRadius), clusterCenterPoint.y +  (Math.cos(spiderTheta * s) * spiderRadius)]);
+                                                    var expandedLatLong = map.layerPointToLatLng(spideredPoint)
+                                                    ml.setLatLng(expandedLatLong);
+                                                    s = s + 1;
+                                                }
                                              });
                                          })
 
                                         clusterLayer.on('mouseout', function() {
-                                            var s = gap;
+                                            var hasOpenPopup = false;
                                             this.eachLayer(function(ml) {
-                                                 ml.setLatLng(ml.originalPoint);
-                                                 s = s * -1;
-                                              });
-                                          })
+                                                var popup = ml._popup;
+                                                if(popup && popup.isOpen()) {
+                                                    hasOpenPopup = true;
+                                                }
+                                            });
+
+                                            if (!hasOpenPopup) {
+                                                this.eachLayer(function(ml) {
+                                                    if (ml.circle) {
+                                                        ml.setRadius(0);
+                                                    } else {
+                                                        ml.setLatLng(ml.originalPoint);
+                                                    }
+                                                });
+                                            }
+                                        })
 
                                         markers.push(clusterLayer);
 
@@ -381,8 +449,8 @@ function contriblyInitMap(span) {
     span.append(wrapper);
 
     var map = contriblyLeaflet.map(mapDiv.get(0), {
-        center: [0, 0],
-        zoom: 2,
+        center: [53, 2],
+        zoom: 4,
         minZoom: 2,
         maxZoom: maxZoom,
         worldCopyJump: true
@@ -396,8 +464,20 @@ function contriblyInitMap(span) {
         attribution: tileAttribution
     }).addTo(map);
 
+
+    map.on('popupopen', function(e) {
+        this._locked = true;
+    });
+
+   map.on('popupclose', function(e){
+       this._locked = false;
+    });
+
+
     map.on('moveend', function(e) {
-        draw();
+        if (!this._locked) {
+            draw();
+        }
     });
 
     function setMapToInitialBounds() {
@@ -445,12 +525,14 @@ function contriblyInitMap(span) {
     publishContriblyEvent({type: "loaded"})
 }
 
-contriblyjQuery.ajax({
-    url: "https://s3-eu-west-1.amazonaws.com/contribly-widgets/map/map2017021501.css",
-    success:function(data) {
-        contriblyjQuery("head").append("<style>" + data + "</style>");
-        contriblyjQuery('.contribly-map').each(function(i, v) {
+contriblyjQuery('.contribly-map').each(function(i, v) {
+    var requestedCss = contriblyjQuery.attr('data-css');
+    var cssToLoad = (requestedCss != undefined) ? requestedCss : "https://s3-eu-west-1.amazonaws.com/contribly-widgets/map/map2017021501.css";
+    contriblyjQuery.ajax({
+        url: cssToLoad,
+        success: function(data) {
+            contriblyjQuery("head").append("<style>" + data + "</style>");
             contriblyInitMap(contriblyjQuery(v));
-        });
-    }
+        }
+    });
 });
