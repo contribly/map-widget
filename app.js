@@ -15,7 +15,7 @@ function contriblyInitMap(span) {
         2: 1,
         3: 2,
         4: 2,
-        5: 2,
+        5: 3,
         6: 3,
         7: 3,
         8: 4,
@@ -138,16 +138,13 @@ function contriblyInitMap(span) {
         var marker = icon ?
            contriblyLeaflet.marker(point,
             {
-                zIndexOffset: 10,
                 icon: thumbnailIcon
-
             }
         ) : contriblyLeaflet.marker(point);
 
-        marker.bindPopup(popupForContribution(contribution), popupOptions);
-
         marker.originalPoint = point;
 
+        marker.bindPopup(popupForContribution(contribution), popupOptions);
         return marker;
     }
 
@@ -307,7 +304,6 @@ function contriblyInitMap(span) {
                                     var currentZoom = map.getZoom();
                                     if (currentZoom < maxZoom) {
                                         var cluster = new contriblyLeaflet.Marker(latLongCenterOfGeohash(k), {
-                                            zIndexOffset: 1001,
                                             icon: new contriblyLeaflet.DivIcon({
                                                 className: 'contribly-map-cluster',
                                                 html: '<span class="contribly-map-cluster-count">' + v + '</span>',
@@ -342,38 +338,27 @@ function contriblyInitMap(span) {
                                 contriblyjQuery.each(clusters, function(index, cluster) {
 
                                     if (cluster.length > 1) {
-                                        var clusterCenter = cluster[0].place.latLong;
+                                        var clusterCenter = cluster[0].place.latLong;   // TODO not the best approximation
                                         var clusterCenterPoint = map.latLngToLayerPoint(latLongToPoint(clusterCenter));
 
-                                        var label = new contriblyLeaflet.Marker(latLongToPoint(clusterCenter), {
-                                            zIndexOffset: 1000,
-                                            icon: new contriblyLeaflet.DivIcon({
-                                                className: 'my-div-icon',
-                                                html: '<div class="contribly-map-cluster-yellow"><span class="contribly-map-cluster-count">' + cluster.length + '</span></div>',
-                                                iconSize: contriblyLeaflet.point(53, 52)
-                                            })
-                                        });
+                                        var spiderTheta = (2 * Math.PI) / cluster.length;
+                                        var spiderRadius = 50 / (2 * Math.sin(spiderTheta / 2));
 
                                         var clusterMarkers = [];
                                         contriblyjQuery.each(cluster, function(index, c) {
                                             var marker = markerForContribution(c)
+                                            marker.off('click');
+                                            marker.spidered = false;
+                                            marker.belongsToCluster = cluster;
                                             clusterMarkers.push(marker);
                                         });
 
-                                        var spiderTheta = (2 * Math.PI) / clusterMarkers.length;
-                                        var spiderRadius = 50 / (2 * Math.sin(spiderTheta / 2));
-
-                                        var outer = contriblyLeaflet.point([clusterCenterPoint.x + spiderRadius, clusterCenterPoint.y]);
-                                        var circleRadius = map.layerPointToLatLng(outer).distanceTo(contriblyLeaflet.latLng(clusterCenter.latitude, clusterCenter.longitude));
-
-                                        var circle = contriblyLeaflet.circle([clusterCenter.latitude, clusterCenter.longitude], {radius: 0, fillOpacity: 0.0, opacity: 0.0});
-                                        circle.circle = true;
-                                        circle.expandedRadius = circleRadius;
-                                        clusterMarkers.push(circle);
-
                                         var clusterLayer = contriblyLeaflet.featureGroup(clusterMarkers);
+                                        clusterLayer.on('click', function(e) {
+                                            if (e.layer.spidered && e.layer._popup) {
+                                                e.layer.openPopup();
+                                            }
 
-                                        clusterLayer.on('mouseover', function() {
                                             var markersToSpider = [];
                                             this.eachLayer(function(ml) {
                                                 markersToSpider.push(ml);
@@ -387,31 +372,13 @@ function contriblyInitMap(span) {
                                                     var spideredPoint = contriblyLeaflet.point([clusterCenterPoint.x + (Math.sin(spiderTheta * s) * spiderRadius), clusterCenterPoint.y +  (Math.cos(spiderTheta * s) * spiderRadius)]);
                                                     var expandedLatLong = map.layerPointToLatLng(spideredPoint)
                                                     ml.setLatLng(expandedLatLong);
+                                                    ml.spidered = true;
                                                     s = s + 1;
                                                 }
                                              });
-                                         })
-
-                                        clusterLayer.on('mouseout', function() {
-                                            var hasOpenPopup = false;
-                                            this.eachLayer(function(ml) {
-                                                var popup = ml._popup;
-                                                if(popup && popup.isOpen()) {
-                                                    hasOpenPopup = true;
-                                                }
-                                            });
-
-                                            if (!hasOpenPopup) {
-                                                this.eachLayer(function(ml) {
-                                                    if (ml.circle) {
-                                                        ml.setRadius(0);
-                                                    } else {
-                                                        ml.setLatLng(ml.originalPoint);
-                                                    }
-                                                });
-                                            }
                                         })
 
+                                        cluster.clusterLayer = clusterLayer;
                                         markers.push(clusterLayer);
 
                                     } else {
@@ -469,10 +436,23 @@ function contriblyInitMap(span) {
         this._locked = true;
     });
 
-   map.on('popupclose', function(e){
-       this._locked = false;
-    });
+    function deSpider(clusterLayer) {
+        clusterLayer.eachLayer(function(ml) {
+            if (ml.circle) {
+                // ml.setRadius(0);
+            } else {
+                ml.setLatLng(ml.originalPoint);
+                ml.spidered = false;
+            }
+        });
+    }
 
+   map.on('popupclose', function(e){
+       if (e.popup._source.belongsToCluster) {
+        deSpider(e.popup._source.belongsToCluster.clusterLayer);
+       }
+      this._locked = false;
+   });
 
     map.on('moveend', function(e) {
         if (!this._locked) {
@@ -514,7 +494,7 @@ function contriblyInitMap(span) {
             success:function(data) {
                 var enclosingGeohashes = data.geohash3;
                 var bounds = calculateBoundsForEnclosingGeohashes(enclosingGeohashes);
-                map.fitBounds(bounds);
+                // map.fitBounds(bounds);
                 draw();
             }
         });
@@ -527,7 +507,7 @@ function contriblyInitMap(span) {
 
 contriblyjQuery('.contribly-map').each(function(i, v) {
     var requestedCss = contriblyjQuery.attr('data-css');
-    var cssToLoad = (requestedCss != undefined) ? requestedCss : "https://s3-eu-west-1.amazonaws.com/contribly-widgets/map/map2017021501.css";
+    var cssToLoad = (requestedCss != undefined) ? requestedCss : "https://s3-eu-west-1.amazonaws.com/contribly-widgets/map/map2017030904.css";
     contriblyjQuery.ajax({
         url: cssToLoad,
         success: function(data) {
