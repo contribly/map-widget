@@ -14,7 +14,7 @@ function contriblyInitMap(span) {
     var zoomGeohashes = {
         2: 1,
         3: 2,
-        4: 2,
+        4: 3,
         5: 3,
         6: 3,
         7: 3,
@@ -93,7 +93,10 @@ function contriblyInitMap(span) {
 
     function popupForContribution(contribution) {
         var popup = contriblyjQuery("<div>", {class: "popup"});
-        popup.append(contriblyjQuery("<h3>").text(contribution.headline));
+
+        var heading = contriblyjQuery("<h3>").text(contribution.headline);
+        var contributionHeadline = contribution.webUrl ? contriblyjQuery("<a>", {href: contribution.webUrl}).append(heading) : heading;
+        popup.append(contributionHeadline);
 
         var mediaUsage = contribution.mediaUsages.length > 0 ? contribution.mediaUsages[0] : null;
         var mediumArtifact = mediaUsage != undefined ? contriblyUnderscore.find(mediaUsage.artifacts, function(artifact) {
@@ -424,8 +427,8 @@ function contriblyInitMap(span) {
     });
 
     // Example only; use commerical tiles for in production
-    var tileLayer='http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-    var tileAttribution='Map data © <a href="http://openstreetmap.org">OpenStreetMap</a> contributors';
+    var tileLayer = "http://tiles1-f421b54070a26db3da72542a5b4d9fd2.skobblermaps.com/TileService/tiles/2.0/000011301/0/{z}/{x}/{y}.png"
+    var tileAttribution = '<a href="http://developer.skobbler.com/" target="_blank">Scout</a>, <a href="http://www.openstreetmap.org" target="_blank">OpenStreetMap</a>';
 
     contriblyLeaflet.tileLayer(tileLayer, {
         attribution: tileAttribution
